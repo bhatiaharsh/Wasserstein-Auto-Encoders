@@ -1,16 +1,32 @@
-import tensorflow as tf
 import numpy as np
 
+#import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
+
+# ------------------------------------------------------------------------------
 def encoder_init(model):
     with tf.variable_scope('encoder'):
         if model.opts['encoder_architecture'] == 'small_convolutional_celebA':
             _encoder_small_convolutional_celebA_init(model)
         elif model.opts['encoder_architecture'] == 'FC_dsprites':
+            # being used for fading_squares!
             _encoder_FC_dsprites_init(model)
         elif model.opts['encoder_architecture'] == 'dcgan':
             _dcgan_encoder(model)
         _z_sample_init(model)
+
+
+def decoder_init(model):
+    with tf.variable_scope('decoder'):
+        if model.opts['decoder_architecture'] == 'small_convolutional_celebA':
+            _decoder_small_convolutional_celebA_init(model)
+        elif model.opts['decoder_architecture'] == 'FC_dsprites':
+            # being used for fading_squares!
+            _decoder_FC_dsprites_init(model)
+        elif model.opts['decoder_architecture'] in ['dcgan', 'dcgan_mod']:
+            _dcgan_decoder(model)
 
 
 def prior_init(model):
@@ -18,27 +34,61 @@ def prior_init(model):
         model.z_prior_sample = tf.random_normal(shape=tf.shape(model.z_mean),
                                                 name="z_prior_sample")
     elif model.opts['z_prior'] == 'uniform':
+        # being used for fading_squares!
         noise = tf.random_uniform(shape=tf.shape(model.z_mean))
         model.z_prior_sample = tf.multiply((noise-0.5), 2,
                                             name="z_prior_sample")
 
-def decoder_init(model):
-    with tf.variable_scope('decoder'):
-        if model.opts['decoder_architecture'] == 'small_convolutional_celebA':
-            _decoder_small_convolutional_celebA_init(model)
-        elif model.opts['decoder_architecture'] == 'FC_dsprites':
-            _decoder_FC_dsprites_init(model)
-        elif model.opts['decoder_architecture'] in ['dcgan', 'dcgan_mod']:
-            _dcgan_decoder(model)
+
+def optimizer_init(model):
+    encoder_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder')
+    decoder_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='decoder')
+    if model.opts['optimizer'] == 'adam':
+        model.learning_rate = tf.placeholder(tf.float32)
+        model.train_step = tf.train.AdamOptimizer(model.learning_rate).minimize(model.loss_total, var_list=encoder_vars+decoder_vars)
+
+        if model.opts['loss_reconstruction'] in ['L2_squared+adversarial', 'L2_squared+adversarial+l2_filter', 'L2_squared+multilayer_conv_adv', 'L2_squared+adversarial+l2_norm', 'normalised_conv_adv']:
+            adv_cost_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='adversarial_cost')
+            model.adv_cost_train_step = tf.train.AdamOptimizer(model.learning_rate).minimize(-model.adv_cost_loss, var_list=adv_cost_vars)
+
+
+def data_augmentation_init(model):
+    height = model.data_dims[0]
+    width = model.data_dims[1]
+    depth = model.data_dims[2]
+    image = model.input
+    def _distort_func(image):
+        # tf.image.per_image_standardization(image), should we?
+        # Pad with zeros.
+        image = tf.image.resize_image_with_crop_or_pad(
+            image, height+4, width+4)
+        image = tf.random_crop(image, [height, width, depth])
+        image = tf.image.random_flip_left_right(image)
+        image = tf.image.random_brightness(image, max_delta=0.1)
+        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
+        image = tf.image.random_contrast(image, lower=0.8, upper=1.3)
+        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
+        image = tf.image.random_hue(image, 0.08)
+        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
+        image = tf.image.random_saturation(image, lower=0.8, upper=1.3)
+        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
+        return image
+
+    model.distorted_inputs = tf.map_fn(_distort_func, image, parallel_iterations=model.batch_size)
+
 
 def loss_init(model):
     all_losses = []
+
+    # reconstruction
     if model.opts['loss_reconstruction'] == 'bernoulli':
+        # being used for fading_squares
         model.loss_reconstruction = tf.reduce_mean(tf.reduce_sum(
             tf.nn.sigmoid_cross_entropy_with_logits(logits=model.x_logits,
                                                     labels=model.x_flattened),
                                                     axis=1),
                                                     name="loss_reconstruction")
+
     elif model.opts['loss_reconstruction'] == 'L2_squared':
         model.loss_reconstruction = tf.reduce_mean(tf.reduce_sum(
             tf.square(tf.nn.sigmoid(model.x_logits) - model.x_flattened), axis=1),
@@ -222,7 +272,6 @@ def loss_init(model):
             l2_sq_loss = l2_lambda * tf.reduce_sum(tf.reduce_mean((out_im - real_im)**2, axis=0))
             model.loss_reconstruction = tf.add(model.adv_cost_loss, l2_sq_loss, name='loss_reconstruction')
 
-
     elif model.opts['loss_reconstruction'] == 'L2_squared+multilayer_conv_adv':
         if 'adv_cost_lambda' not in model.opts:
             adv_cost_lambda = 1.0
@@ -336,6 +385,7 @@ def loss_init(model):
 
     all_losses.append(model.loss_reconstruction)
 
+    # regularizer
     if model.opts['loss_regulariser'] in ['VAE', 'beta_VAE']:
         if model.opts['loss_regulariser'] == 'VAE':
             beta = 1
@@ -352,30 +402,32 @@ def loss_init(model):
         model.loss_regulariser = tf.multiply(tf.add_n(mmds),
                                              model.opts['lambda_imq'],
                                              name="loss_regulariser")
+
     elif model.opts['loss_regulariser'] is None:
         model.loss_regulariser = tf.constant(0, dtype=tf.float32, name="loss_regulariser")
 
     all_losses.append(model.loss_regulariser)
 
+    # logvar regularization
     if model.opts['z_logvar_regularisation'] == 'L1':
         model.z_logvar_loss = model.opts['lambda_logvar_regularisation'] * tf.reduce_mean(tf.reduce_sum(tf.abs(model.z_logvar), axis=1), name="z_logvar_loss")
         all_losses.append(model.z_logvar_loss)
+
     elif model.opts['z_logvar_regularisation'] == 'L2_squared':
         model.z_logvar_loss = model.opts['lambda_logvar_regularisation'] * tf.reduce_mean(tf.reduce_sum(tf.square(model.z_logvar), axis=1), name="z_logvar_loss")
         all_losses.append(model.z_logvar_loss)
+
+
+    # all losses
     model.loss_total = tf.add_n(all_losses)
 
-def optimizer_init(model):
-    encoder_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder')
-    decoder_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='decoder')
-    if model.opts['optimizer'] == 'adam':
-        model.learning_rate = tf.placeholder(tf.float32)
-        model.train_step = tf.train.AdamOptimizer(model.learning_rate).minimize(model.loss_total, var_list=encoder_vars+decoder_vars)
 
-        if model.opts['loss_reconstruction'] in ['L2_squared+adversarial', 'L2_squared+adversarial+l2_filter', 'L2_squared+multilayer_conv_adv', 'L2_squared+adversarial+l2_norm', 'normalised_conv_adv']:
-            adv_cost_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='adversarial_cost')
-            model.adv_cost_train_step = tf.train.AdamOptimizer(model.learning_rate).minimize(-model.adv_cost_loss, var_list=adv_cost_vars)
+# ------------------------------------------------------------------------------
+def lrelu(alpha, inputs):
+    return tf.maximum(inputs, alpha*inputs)
 
+
+# ------------------------------------------------------------------------------
 def _mmd_init(model, C):
     batch_size = tf.shape(model.input)[0]
     batch_size_float = tf.cast(batch_size, tf.float32)
@@ -410,6 +462,31 @@ def _mmd_init(model, C):
                    (batch_size_float * (batch_size_float - 1))
     return MMD_IMQ
 
+
+def _z_sample_init(model):
+    '''
+    return z_sample: one sample from the encoding distribution
+    '''
+    if model.opts['encoder_distribution'] == 'deterministic':
+        model.z_sample = tf.add(model.z_mean, 0, name="z_sample")
+        return model.z_sample
+    else:
+        if model.opts['logvar-clipping'] is not None:
+            # clipping of logvariances to prevent numerical errors
+            clip_lower, clip_upper = model.opts['logvar-clipping']
+            model.z_logvar = tf.clip_by_value(model.z_logvar, clip_lower, clip_upper)
+
+        if model.opts['encoder_distribution'] == 'gaussian':
+            eps = tf.random_normal(shape=tf.shape(model.z_mean))
+            noise = tf.exp(model.z_logvar  / 2) * eps
+        elif model.opts['encoder_distribution'] == 'uniform':
+            eps = tf.random_uniform(shape=tf.shape(model.z_mean))
+            noise = tf.exp(model.z_logvar) * eps
+        model.z_sample = tf.add(model.z_mean, noise, name="z_sample")
+    return model.z_sample
+
+
+# ------------------------------------------------------------------------------
 def _dcgan_encoder(model):
     x = model.input
     model.x_flattened = tf.reshape(x, shape=[-1, np.prod(model.data_dims)])
@@ -590,6 +667,7 @@ def _encoder_small_convolutional_celebA_init(model):
                                          name="z_logvar")
         return model.z_mean, model.z_logvar
 
+
 def _encoder_FC_dsprites_init(model):
     if len(model.input.shape) == 3: # then we have to explicitly add single channel at end
         x_reshape = tf.reshape(model.input,
@@ -617,27 +695,6 @@ def _encoder_FC_dsprites_init(model):
         model.z_logvar = tf.layers.dense(inputs=Q_FC2, units=model.z_dim, name="z_logvar")
         return model.z_mean, model.z_logvar
 
-def _z_sample_init(model):
-    '''
-    return z_sample: one sample from the encoding distribution
-    '''
-    if model.opts['encoder_distribution'] == 'deterministic':
-        model.z_sample = tf.add(model.z_mean, 0, name="z_sample")
-        return model.z_sample
-    else:
-        if model.opts['logvar-clipping'] is not None:
-            # clipping of logvariances to prevent numerical errors
-            clip_lower, clip_upper = model.opts['logvar-clipping']
-            model.z_logvar = tf.clip_by_value(model.z_logvar, clip_lower, clip_upper)
-
-        if model.opts['encoder_distribution'] == 'gaussian':
-            eps = tf.random_normal(shape=tf.shape(model.z_mean))
-            noise = tf.exp(model.z_logvar  / 2) * eps
-        elif model.opts['encoder_distribution'] == 'uniform':
-            eps = tf.random_uniform(shape=tf.shape(model.z_mean))
-            noise = tf.exp(model.z_logvar) * eps
-        model.z_sample = tf.add(model.z_mean, noise, name="z_sample")
-    return model.z_sample
 
 def _decoder_small_convolutional_celebA_init(model):
     P_dense1 = tf.layers.dense(inputs=model.z_sample,
@@ -725,6 +782,7 @@ def _decoder_small_convolutional_celebA_init(model):
                                 shape=[-1, np.prod(model.data_dims)],
                                 name="x_logits")
 
+
 def _decoder_FC_dsprites_init(model):
     P_FC1 = tf.layers.dense(inputs=model.z_sample, units=1200, activation=tf.nn.tanh)
     P_FC2 = tf.layers.dense(inputs=P_FC1, units=1200, activation=tf.nn.tanh)
@@ -737,30 +795,4 @@ def _decoder_FC_dsprites_init(model):
     model.x_logits_img_shape = tf.reshape(model.x_logits,[-1, model.data_dims[0], model.data_dims[1], 1],
                                           name="x_logits_img_shape")
 
-def lrelu(alpha, inputs):
-    return tf.maximum(inputs, alpha*inputs)
-
-
-def data_augmentation_init(model):
-    height = model.data_dims[0]
-    width = model.data_dims[1]
-    depth = model.data_dims[2]
-    image = model.input
-    def _distort_func(image):
-        # tf.image.per_image_standardization(image), should we?
-        # Pad with zeros.
-        image = tf.image.resize_image_with_crop_or_pad(
-            image, height+4, width+4)
-        image = tf.random_crop(image, [height, width, depth])
-        image = tf.image.random_flip_left_right(image)
-        image = tf.image.random_brightness(image, max_delta=0.1)
-        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
-        image = tf.image.random_contrast(image, lower=0.8, upper=1.3)
-        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
-        image = tf.image.random_hue(image, 0.08)
-        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
-        image = tf.image.random_saturation(image, lower=0.8, upper=1.3)
-        image = tf.minimum(tf.maximum(image, 0.0), 1.0)
-        return image
-
-    model.distorted_inputs = tf.map_fn(_distort_func, image, parallel_iterations=model.batch_size)
+# ------------------------------------------------------------------------------

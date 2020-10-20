@@ -1,17 +1,27 @@
-import tensorflow as tf
-import numpy as np
 import os
-import time
-import sys
+#import time
+#import sys
+#import config
+
+import numpy as np
+#import matplotlib
+#matplotlib.use('Agg')
+#import matplotlib.pyplot as plt
+
+#import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+print ('using tensorflow {}'.format(tf.__version__))
+
 import models
-import config
 import utils
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import disentanglement_metric
 
+
+## -----------------------------------------------------------------------------
 class Model(object):
+
+    # --------------------------------------------------------------------------
     def __init__(self, opts, load=False):
         self.sess = tf.Session()
 
@@ -36,7 +46,6 @@ class Model(object):
             utils.save_opts(self)
             utils.copy_all_code(self)
 
-
         models.encoder_init(self)
         models.decoder_init(self)
         models.prior_init(self)
@@ -58,20 +67,23 @@ class Model(object):
         if load is True:
             self.load_saved_model()
 
-    def save(self, it):
-        model_path = "checkpoints/model"
-        save_path = self.saver.save(self.sess, model_path, global_step=it)
-        print("Model saved to: %s" % save_path)
+    # --------------------------------------------------------------------------
+    def encode(self, images, mean=True):
+        if mean is False:
+            return self.sess.run(self.z_sample, feed_dict={self.input: images})
+        if mean is True:
+            return self.sess.run(self.z_mean, feed_dict={self.input: images})
 
-    def restore(self, model_path):
-        self.saver.restore(self.sess, model_path)
-        print("Model restored from : %s" % model_path)
+    def decode(self, codes):
+        return self.sess.run(tf.nn.sigmoid(self.x_logits_img_shape), feed_dict={self.z_sample: codes})
 
+    # --------------------------------------------------------------------------
     def train(self, it=0):
         if 'data_augmentation' in self.opts and self.opts['data_augmentation'] is True:
             augment = True
         else:
             augment = False
+
         print("Beginning training")
         if self.opts['optimizer'] == 'adam':
             learning_rates = [i[0] for i in self.opts['learning_rate_schedule']]
@@ -123,16 +135,7 @@ class Model(object):
             if self.opts['FID_score_samples'] is True:
                 self.save_FID_samples()
 
-
-    def encode(self, images, mean=True):
-        if mean is False:
-            return self.sess.run(self.z_sample, feed_dict={self.input: images})
-        if mean is True:
-            return self.sess.run(self.z_mean, feed_dict={self.input: images})
-
-    def decode(self, codes):
-        return self.sess.run(tf.nn.sigmoid(self.x_logits_img_shape), feed_dict={self.z_sample: codes})
-
+    # --------------------------------------------------------------------------
     def sample_codes(self, batch_size=None, seed=None):
         if batch_size is None:
             batch_size = self.batch_size
@@ -162,10 +165,7 @@ class Model(object):
             np.random.set_state(st0)
         return sample
 
-    def load_saved_model(self):
-        os.chdir(self.experiment_path)
-        self.saver.restore(self.sess, tf.train.latest_checkpoint('checkpoints'))
-
+    # --------------------------------------------------------------------------
     def save_FID_samples(self):
         # makes 10,000 random samples and 10,000 train reconstructions
         # (or the whole train set is smaller than 10,000)
@@ -240,3 +240,19 @@ class Model(object):
 
         train_reconstructions = np.concatenate(train_reconstructions)
         np.save("output/train_reconstructions.npy", train_reconstructions)
+
+    # --------------------------------------------------------------------------
+    def save(self, it):
+        model_path = "checkpoints/model"
+        save_path = self.saver.save(self.sess, model_path, global_step=it)
+        print("Model saved to: %s" % save_path)
+
+    def restore(self, model_path):
+        self.saver.restore(self.sess, model_path)
+        print("Model restored from : %s" % model_path)
+
+    def load_saved_model(self):
+        os.chdir(self.experiment_path)
+        self.saver.restore(self.sess, tf.train.latest_checkpoint('checkpoints'))
+
+## -----------------------------------------------------------------------------

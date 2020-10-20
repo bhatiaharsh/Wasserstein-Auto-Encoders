@@ -1,73 +1,75 @@
-import wae
-import argparse
-import config
+# ------------------------------------------------------------------------------
+def setup_parser():
+    import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--experiment",
-                    help='Default experiment configs to use: dsprites/fading_squares/celebA_mini/celebA_random/celebA_deterministic')
-parser.add_argument("--dataset",
-                    help='Dataset to train on: dsprites/celebA/celebA_mini/fading_squares')
-parser.add_argument("--z_dim", help='latent space dimensionality', type=int)
-parser.add_argument("--lambda_imq", help='Lambda for WAE penalty', type=float)
-parser.add_argument("--experiment_path",
-                    help="Relative path to where this experiment should save results")
-parser.add_argument("--encoder_distribution",
-                    help="Encoder distribution: deterministic/gaussian/uniform")
-parser.add_argument("--z_prior",
-                    help="Prior distribution over latent space: gaussian/uniform")
-parser.add_argument("--loss_reconstruction",
-                    help="Image reconstruction loss: bernoulli/L2_squared")
-parser.add_argument("--loss_regulariser",
-                    help="Model type: VAE/beta_VAE/WAE_MMD")
-parser.add_argument("--beta", type=float,
-                    help="beta parameter for beta_VAE")
-parser.add_argument("--disentanglement_metric", type=bool,
-                    help="Calculate disentanglement metric")
-parser.add_argument("--make_pictures_every", type=int,
-                    help="How often to plot random samples and reconstructions")
-parser.add_argument("--save_every", type=int,
-                    help="How often to save the model")
-parser.add_argument("--batch_size", type=int,
-                    help="Batch size. Default 100")
-parser.add_argument("--encoder_architecture",
-                    help="Architecture of encoder: FC_dsprites/small_convolutional_celebA")
-parser.add_argument("--decoder_architecture",
-                    help="Architecture of decoder: FC_dsprites/small_convolutional_celebA")
-parser.add_argument("--z_logvar_regularisation",
-                    help="Regularisation on log-variances: None/L1/L2_squared")
-parser.add_argument("--lambda_logvar_regularisation", type=float,
-                    help="Coefficient of logvariance regularisation")
-parser.add_argument("--plot_losses",
-                    help="Plot losses and least-gaussian-subspace: True/False:")
-parser.add_argument("--adversarial_cost_n_filters", type=int,
-                    help="Number of convolutional filters to use for adversarial cost")
-parser.add_argument("--adv_cost_nlayers", type=int,
-                    help="Number of convolutional layers to use for adversarial cost")
-parser.add_argument("--adversarial_cost_kernel_size", type=int,
-                    help="Size of convolutional kernels to use for adversarial cost. -1 for sum over kernels of size 3,4,5")
-parser.add_argument("--adv_cost_lambda", type=float,
-                    help="Weighting of adversarial cost")
-parser.add_argument("--adv_cost_normalise_filter", type=bool,
-                    help="Whether to normalise adversarial cost across filters (default uses Sylvain normalisation across channels)")
-parser.add_argument("--pixel_wise_l2", type=bool,
-                    help="Should mean pixel loss be over individual pixels or patches for patch_moments?")
-parser.add_argument("--encoder_num_filters", type=int,
-                    help="Number of filters for the encoder")
-parser.add_argument("--decoder_num_filters", type=int,
-                    help="Number of filters for the decoder")
-parser.add_argument("--encoder_num_layers", type=int,
-                    help="Number of layers for the encoder")
-parser.add_argument("--decoder_num_layers", type=int,
-                    help="Number of layers for the decoder")
-parser.add_argument("--l2_lambda", type=float,
-                    help="Weighting of l2 penalty")
-parser.add_argument("--patch_classifier_lambda", type=float,
-                    help="Weighting of the patch classification penalty")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment",
+                        help='Default experiment configs to use: dsprites/fading_squares/celebA_mini/celebA_random/celebA_deterministic')
+    parser.add_argument("--dataset",
+                        help='Dataset to train on: dsprites/celebA/celebA_mini/fading_squares')
+    parser.add_argument("--z_dim", help='latent space dimensionality', type=int)
+    parser.add_argument("--lambda_imq", help='Lambda for WAE penalty', type=float)
+    parser.add_argument("--experiment_path",
+                        help="Relative path to where this experiment should save results")
+    parser.add_argument("--encoder_distribution",
+                        help="Encoder distribution: deterministic/gaussian/uniform")
+    parser.add_argument("--z_prior",
+                        help="Prior distribution over latent space: gaussian/uniform")
+    parser.add_argument("--loss_reconstruction",
+                        help="Image reconstruction loss: bernoulli/L2_squared")
+    parser.add_argument("--loss_regulariser",
+                        help="Model type: VAE/beta_VAE/WAE_MMD")
+    parser.add_argument("--beta", type=float,
+                        help="beta parameter for beta_VAE")
+    parser.add_argument("--disentanglement_metric", type=bool,
+                        help="Calculate disentanglement metric")
+    parser.add_argument("--make_pictures_every", type=int,
+                        help="How often to plot random samples and reconstructions")
+    parser.add_argument("--save_every", type=int,
+                        help="How often to save the model")
+    parser.add_argument("--batch_size", type=int,
+                        help="Batch size. Default 100")
+    parser.add_argument("--encoder_architecture",
+                        help="Architecture of encoder: FC_dsprites/small_convolutional_celebA")
+    parser.add_argument("--decoder_architecture",
+                        help="Architecture of decoder: FC_dsprites/small_convolutional_celebA")
+    parser.add_argument("--z_logvar_regularisation",
+                        help="Regularisation on log-variances: None/L1/L2_squared")
+    parser.add_argument("--lambda_logvar_regularisation", type=float,
+                        help="Coefficient of logvariance regularisation")
+    parser.add_argument("--plot_losses",
+                        help="Plot losses and least-gaussian-subspace: True/False:")
+    parser.add_argument("--adversarial_cost_n_filters", type=int,
+                        help="Number of convolutional filters to use for adversarial cost")
+    parser.add_argument("--adv_cost_nlayers", type=int,
+                        help="Number of convolutional layers to use for adversarial cost")
+    parser.add_argument("--adversarial_cost_kernel_size", type=int,
+                        help="Size of convolutional kernels to use for adversarial cost. -1 for sum over kernels of size 3,4,5")
+    parser.add_argument("--adv_cost_lambda", type=float,
+                        help="Weighting of adversarial cost")
+    parser.add_argument("--adv_cost_normalise_filter", type=bool,
+                        help="Whether to normalise adversarial cost across filters (default uses Sylvain normalisation across channels)")
+    parser.add_argument("--pixel_wise_l2", type=bool,
+                        help="Should mean pixel loss be over individual pixels or patches for patch_moments?")
+    parser.add_argument("--encoder_num_filters", type=int,
+                        help="Number of filters for the encoder")
+    parser.add_argument("--decoder_num_filters", type=int,
+                        help="Number of filters for the decoder")
+    parser.add_argument("--encoder_num_layers", type=int,
+                        help="Number of layers for the encoder")
+    parser.add_argument("--decoder_num_layers", type=int,
+                        help="Number of layers for the decoder")
+    parser.add_argument("--l2_lambda", type=float,
+                        help="Weighting of l2 penalty")
+    parser.add_argument("--patch_classifier_lambda", type=float,
+                        help="Weighting of the patch classification penalty")
+
+    return parser
 
 
-FLAGS = parser.parse_args()
+def parse_config(FLAGS):
+    import config
 
-if __name__ == "__main__":
     if FLAGS.experiment == 'dsprites':
         opts = config.dsprites_opts
     elif FLAGS.experiment == 'fading_squares':
@@ -167,5 +169,23 @@ if __name__ == "__main__":
     if FLAGS.patch_classifier_lambda is not None:
         opts['patch_classifier_lambda'] = FLAGS.patch_classifier_lambda
 
+    return opts
+
+
+# ------------------------------------------------------------------------------
+if __name__ == "__main__":
+
+    FLAGS = setup_parser().parse_args()
+    opts = parse_config(FLAGS)
+
+    print('\n-------- FLAGS = {}'.format(FLAGS))
+    print('\n-------- opts = {}'.format(opts))
+
+    import wae
+
+    print('\n-------- set up a wae')
     model = wae.Model(opts)
+    print('\n-------- train now')
     model.train()
+
+# ------------------------------------------------------------------------------
