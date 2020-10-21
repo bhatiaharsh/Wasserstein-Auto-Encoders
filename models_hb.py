@@ -8,25 +8,13 @@ tf.disable_v2_behavior()
 # ------------------------------------------------------------------------------
 def encoder_init(model):
     with tf.variable_scope('encoder'):
-        if model.opts['encoder_architecture'] == 'small_convolutional_celebA':
-            _encoder_small_convolutional_celebA_init(model)
-        elif model.opts['encoder_architecture'] == 'FC_dsprites':
-            # being used for fading_squares!
-            _encoder_FC_dsprites_init(model)
-        elif model.opts['encoder_architecture'] == 'dcgan':
-            _dcgan_encoder(model)
+        _encoder_1(model)
         _z_sample_init(model)
 
 
 def decoder_init(model):
     with tf.variable_scope('decoder'):
-        if model.opts['decoder_architecture'] == 'small_convolutional_celebA':
-            _decoder_small_convolutional_celebA_init(model)
-        elif model.opts['decoder_architecture'] == 'FC_dsprites':
-            # being used for fading_squares!
-            _decoder_FC_dsprites_init(model)
-        elif model.opts['decoder_architecture'] in ['dcgan', 'dcgan_mod']:
-            _dcgan_decoder(model)
+        _decoder_1(model)
 
 
 def prior_init(model):
@@ -91,8 +79,11 @@ def loss_init(model):
 
     elif model.opts['loss_reconstruction'] == 'L2_squared':
         model.loss_reconstruction = tf.reduce_mean(tf.reduce_sum(
-            tf.square(tf.nn.sigmoid(model.x_logits) - model.x_flattened), axis=1),
+            tf.square(model.x - model.reconstruction), axis=1),
             name="loss_reconstruction")
+        #model.loss_reconstruction = tf.reduce_mean(tf.reduce_sum(
+        #    tf.square(tf.nn.sigmoid(model.x_logits) - model.x_flattened), axis=1),
+        #    name="loss_reconstruction")
 
     elif model.opts['loss_reconstruction'] == 'L2_squared+adversarial':
         if 'adv_cost_lambda' not in model.opts:
@@ -487,7 +478,46 @@ def _z_sample_init(model):
 
 
 # ------------------------------------------------------------------------------
-def _encoder_FC_dsprites_init(model):
+def _encoder_1(model):
+
+    model.z_dim = 4
+
+    ## vae encoder
+    model.x = model.input
+    print (' >>> model.input =', model.input)
+
+    l1 = tf.layers.conv2d(model.x, filters=32, kernel_size=3, strides=2, activation='relu')
+    print (' >>> ', l1)
+    l2 = tf.layers.conv2d(l1, filters=64, kernel_size=3, strides=2, activation='relu')
+    print (' >>> ', l2)
+    l3 = tf.layers.conv2d(l2, filters=1, kernel_size=1, strides=1, activation='relu')
+    print (' >>> ', l3)
+    l4 = tf.layers.flatten(l3)
+    print (' >>> ', l4)
+    l5 = tf.layers.dense(l4, units=3*model.z_dim, activation='relu')
+    print(' >>> ', l5)
+
+    layer_x = l5
+    if model.opts['z_mean_activation'] == 'tanh':
+        model.z_mean = tf.layers.dense(inputs=layer_x,
+                                       units=model.z_dim,
+                                       activation=tf.nn.tanh,
+                                       name="z_mean")
+    elif model.opts['z_mean_activation'] is None:
+        model.z_mean = tf.layers.dense(inputs=layer_x,
+                                       units=model.z_dim,
+                                       name="z_mean")
+
+    if model.opts['encoder_distribution'] != 'deterministic':
+        model.z_logvar = tf.layers.dense(inputs=layer_x,
+                                         units=model.z_dim,
+                                         name="z_logvar")
+
+    print('z_mean =', model.z_mean)
+    print('z_logvar =', model.z_logvar)
+
+    '''
+    ## _encoder_FC_dsprites_init
     if len(model.input.shape) == 3: # then we have to explicitly add single channel at end
         x_reshape = tf.reshape(model.input,
                                shape=(-1,) + model.train_data.shape[1:] + (1,))
@@ -513,10 +543,30 @@ def _encoder_FC_dsprites_init(model):
     else:
         model.z_logvar = tf.layers.dense(inputs=Q_FC2, units=model.z_dim, name="z_logvar")
         return model.z_mean, model.z_logvar
+    '''
 
+def _decoder_1(model):
 
-def _decoder_FC_dsprites_init(model):
-    P_FC1 = tf.layers.dense(inputs=model.z_sample, units=1200, activation=tf.nn.tanh)
+    x = model.z_sample
+
+    x = model.input
+    print(' >>> model.input =', model.input)
+    l1 = tf.layers.dense(inputs=x, units=64, activation=tf.nn.tanh)
+    print (' >>> ', type(l1), l1)
+    l2 = tf.layers.dense(inputs=l1, units=9*9*32, activation=tf.nn.tanh)
+    print(' >>> ', type(l2), l2)
+    l3 = tf.reshape(l2, shape=[-1, 9,9,32])
+    print(' >>> ', type(l3), l3)
+    l4 = tf.layers.conv2d_transpose(l3, filters=64, kernel_size=3, strides=2, padding='same', activation='relu')
+    print(' >>> ', type(l4), l4)
+    l5 = tf.layers.conv2d_transpose(l4, filters=32, kernel_size=3, strides=2, padding='valid', activation='relu')
+    print(' >>> ', type(l5), l5)
+    l6 = tf.layers.conv2d_transpose(l5, filters=1, kernel_size=1, strides=1, padding='valid')
+    print(' >>> ', l6)
+    model.x_logits = l6
+    model.reconstruction = l6
+
+    '''
     P_FC2 = tf.layers.dense(inputs=P_FC1, units=1200, activation=tf.nn.tanh)
     P_FC3 = tf.layers.dense(inputs=P_FC2, units=1200, activation=tf.nn.tanh)
     if model.data_dims[0] == 64:
@@ -525,6 +575,7 @@ def _decoder_FC_dsprites_init(model):
         model.x_logits = tf.layers.dense(inputs=P_FC3, units=1024, name="x_logits")
     else:
         model.x_logits = tf.layers.dense(inputs=P_FC3, units=1369, name="x_logits")
+    '''
 
     model.x_logits_img_shape = tf.reshape(model.x_logits,[-1, model.data_dims[0], model.data_dims[1], 1],
                                           name="x_logits_img_shape")

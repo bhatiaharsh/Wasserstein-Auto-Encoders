@@ -64,7 +64,11 @@ class Model(object):
             self.train_data -= self.train_data.min()
             self.train_data /= (self.train_data.max()-self.train_data.min())
 
-            ntrain = 0.85 * self.train_data.shape[0]
+            if host == 'lassen':
+                ntrain = int(0.85 * self.train_data.shape[0])
+            elif host == 'galaxy':
+                ntrain = 200
+
             self.test_data = self.train_data[ntrain:]
             self.train_data = self.train_data[:ntrain]
 

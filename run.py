@@ -187,7 +187,7 @@ if __name__ == "__main__":
                                       (0.0007, 2000),
                                       (0.0003, 3000),
                                       (0.0001, 4001)]
-
+    opts['loss_reconstruction'] = 'L2_squared'
     import wae
 
     print('\n-------- set up a wae')
