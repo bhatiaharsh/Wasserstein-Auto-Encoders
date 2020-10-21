@@ -186,7 +186,221 @@ def plot_all_init(model):
         model._proj_loss = projloss
         model._proj_optim = optim
 
+def _plot_img(fig, i, data):
+    ax = plt.Subplot(fig, i)
+    ax.imshow(_imshow_process(data), vmin=0, vmax=1) # cmap="gray",
+    ax.axis("off")
+    fig.add_subplot(ax)
+    return ax
+
+
+def plot_all_bhatia(model, filename_appendage):
+
+    nfixed, nsampled = 20, 10
+    ntotal = nfixed+nsampled
+
+    outfile = os.path.join("output", "plots", str(filename_appendage) + "_{}.png")
+
+    # --------------------------------------------------------------------------
+    fixed_test_sample = model.fixed_test_sample[0:nfixed]
+    fixed_train_sample = model.fixed_train_sample[0:nfixed]
+    fixed_codes = model.fixed_codes[0:2*nfixed]
+
+    # --------------------------------------------------------------------------
+    # ========== Reconstructions of real images ===========
+    if True:
+
+        fixed_train_reconstruction_images = model.decode(model.encode(fixed_train_sample))
+        sampled_train_images = model.sample_minibatch(batch_size=nsampled)
+        sampled_reconstructed_train_images = model.decode(model.encode(sampled_train_images))
+
+        fixed_test_reconstruction_images = model.decode(model.encode(fixed_test_sample))
+        sampled_test_images = model.sample_minibatch(batch_size=nsampled, test=True)
+        sampled_reconstructed_test_images = model.decode(model.encode(sampled_test_images))
+
+        fixed_sample_images = model.decode(fixed_codes)
+        sampled_random_codes = model.sample_codes(batch_size=ntotal)
+        sampled_random_images = model.decode(sampled_random_codes)
+
+        fig = plt.figure(figsize=(30, 7))
+        fig.suptitle("Reconstruction of real images", fontsize=20, fontweight='bold')
+
+        outer = gridspec.GridSpec(3, 1, wspace=0.1, hspace=0.25)
+
+        # Plot reconstructions of training images
+        inner = gridspec.GridSpecFromSubplotSpec(2, ntotal, subplot_spec=outer[0], wspace=0.1, hspace=0.1)
+        for j in range(ntotal):
+            if j < nfixed:
+                a,b = fixed_train_sample[j], fixed_train_reconstruction_images[j]
+            else:
+                a, b = sampled_train_images[j-nfixed], sampled_reconstructed_train_images[j-nfixed]
+
+            axa = _plot_img(fig, inner[j], a)
+            axb = _plot_img(fig, inner[ntotal+j], b)
+            if j == ntotal // 2:
+                axa.set_title('reconstruction of training data', fontsize=14)
+
+        # Plot reconstructions of test images
+        inner = gridspec.GridSpecFromSubplotSpec(2, ntotal, subplot_spec=outer[1], wspace=0.1, hspace=0.1)
+        for j in range(ntotal):
+            if j < nfixed:
+                a, b = fixed_test_sample[j], fixed_test_reconstruction_images[j]
+            else:
+                a, b = sampled_test_images[j - nfixed], sampled_reconstructed_test_images[j - nfixed]
+
+            axa = _plot_img(fig, inner[j], a)
+            axb = _plot_img(fig, inner[ntotal + j], b)
+            if j == ntotal // 2:
+                axa.set_title('reconstruction of training data', fontsize=14)
+
+        # Plot images generated from fixed random samples
+        inner = gridspec.GridSpecFromSubplotSpec(2, ntotal, subplot_spec=outer[2], wspace=0.1, hspace=0.1)
+        for j in range(ntotal):
+            if j < nfixed:
+                a = fixed_sample_images[j]
+            else:
+                a = sampled_random_images[j - nfixed]
+
+            ax = _plot_img(fig, inner[j], a)
+            if j == ntotal // 2:
+                ax.set_title('generated from fixed (top) and varying (bot) random samples', fontsize=14)
+            _plot_img(fig, inner[ntotal+j], b)
+
+        fig.savefig(outfile.format('recons_real'), bbox_inches='tight')
+        plt.close(fig)
+        plt.close("all")
+
+    # ========== Interpolations ===========
+    if True:
+        fig = plt.figure(figsize=(30, 7))
+        fig.suptitle("Interpolated images", fontsize=20, fontweight='bold')
+
+        # interpolate between these two
+        i = 0
+        ipairs = [fixed_train_sample[i],   fixed_train_sample[i+1],
+                  fixed_train_sample[i+2], fixed_train_sample[i+3],
+                  fixed_test_sample[i],    fixed_test_sample[i+1],
+                  fixed_test_sample[i+2],  fixed_test_sample[i+3],
+                  fixed_codes[i], fixed_codes[i+1]]
+
+        npairs = len(ipairs)//2
+
+        outer = gridspec.GridSpec(1, 1, wspace=0.1, hspace=0.25)
+        inner = gridspec.GridSpecFromSubplotSpec(npairs, ntotal, subplot_spec=outer[0], wspace=0.1, hspace=0.1)
+
+        for i in range(npairs):
+            d1 = ipairs[2 * i]
+            d2 = ipairs[2 * i + 1]
+
+            if 3 == len(d1.shape):  # is an image, not a code
+                d1 = model.encode(d1[None,:,:,:], mean=True)
+                d2 = model.encode(d2[None,:,:,:], mean=True)
+            else:
+                d1 = d1[None,:]
+                d2 = d2[None, :]
+
+            embeddings = lerp(d1, d2, ntotal)  # LINEAR for uniform box
+            interp = model.decode(embeddings)
+
+            for j in range(ntotal):
+                _plot_img(fig, inner[i*ntotal + j], interp[j,:,:])
+
+        fig.savefig(outfile.format('recons_interp'), bbox_inches='tight')
+        plt.close(fig)
+        plt.close("all")
+
+    # ========== Walks along each axis direction ===========
+    if True and model.opts['plot_axis_walks'] is True:
+
+        fig = plt.figure(figsize=(30, 7))
+        outer = gridspec.GridSpec(3, 1, wspace=0.1, hspace=0.25)
+        inner = gridspec.GridSpecFromSubplotSpec(model.z_dim, ntotal, subplot_spec=outer[0], wspace=0.1, hspace=0.1)
+
+        axis_walk_range = model.opts['axis_walk_range']
+
+        # Training data
+        mean = model.encode(model.sample_minibatch(batch_size=1), mean=True)
+
+        for axis in range(model.z_dim):
+            repeat_mean = np.repeat(mean, ntotal, axis=0)
+            repeat_mean[:, axis] = np.linspace(-axis_walk_range,axis_walk_range,ntotal)
+            outputs = model.decode(repeat_mean)
+
+            for j in range(ntotal):
+                _plot_img(fig, inner[ntotal*axis + j], outputs[j])
+
+        # Test data
+        inner = gridspec.GridSpecFromSubplotSpec(model.z_dim, ntotal, subplot_spec=outer[1], wspace=0.1, hspace=0.1)
+
+        mean = model.encode(model.sample_minibatch(batch_size=1, test=True), mean=True)
+        for axis in range(model.z_dim):
+            repeat_mean = np.repeat(mean, ntotal, axis=0)
+            repeat_mean[:, axis] = np.linspace(-axis_walk_range,axis_walk_range,ntotal)
+            outputs = model.decode(repeat_mean)
+
+            for j in range(ntotal):
+                _plot_img(fig, inner[ntotal*axis + j], outputs[j])
+
+
+        # Random samples from the latent space
+        inner = gridspec.GridSpecFromSubplotSpec(model.z_dim, ntotal, subplot_spec=outer[2], wspace=0.1, hspace=0.1)
+
+        mean = model.sample_codes(batch_size=1)
+        for axis in range(model.z_dim):
+            repeat_mean = np.repeat(mean, ntotal, axis=0)
+            repeat_mean[:, axis] = np.linspace(-axis_walk_range,axis_walk_range,ntotal)
+            outputs = model.sess.run(tf.nn.sigmoid(model.x_logits_img_shape),
+                                    feed_dict={model.z_sample: repeat_mean})
+            for j in range(ntotal):
+                _plot_img(fig, inner[ntotal*axis + j], outputs[j])
+
+        fig.savefig(outfile.format('axis_walk'), bbox_inches='tight')
+        plt.close(fig)
+        plt.close("all")
+
+    # ========== Training and test error plots ===========
+    if True and model.opts['plot_losses'] is True:
+
+        fig = plt.figure(figsize=(12, 4))
+        outer = gridspec.GridSpec(1, 2, wspace=0.1, hspace=0.25)
+        inner = gridspec.GridSpecFromSubplotSpec(1,1, subplot_spec=outer[0], wspace=0.1, hspace=0.1)
+
+        ax = plt.Subplot(fig, inner[0])
+        if len(model.losses_train) > 5:
+            ax.plot(np.log(model.losses_train[3:]), linewidth=2.0)
+            ax.plot(np.log(model.losses_test_fixed[3:]), linewidth=2.0)
+        else:
+            ax.plot(np.log(model.losses_train), linewidth=2.0)
+            ax.plot(np.log(model.losses_test_fixed), linewidth=2.0)
+        ax.legend(["Log training loss", "Log test loss"], prop={'size': 12})
+        fig.add_subplot(ax)
+
+
+        # ========== Most non-gaussian 2d subspace ===========
+
+        inner = gridspec.GridSpecFromSubplotSpec(1, 1, subplot_spec=outer[1], wspace=0.1, hspace=0.1)
+
+        real_embeddings = model.encode(model.sample_minibatch(batch_size=100), mean=False)
+        prior_samples = model.sample_codes(batch_size=100)
+
+        real_projections, prior_projections = least_gaussian_2d_subspace(model, real_embeddings, prior_samples)
+
+        ax = plt.Subplot(fig, inner[0])
+        ax.scatter(real_projections[:,0], real_projections[:,1], s=30)
+        ax.scatter(prior_projections[:,0], prior_projections[:,1], s=30)
+        ax.legend(["Q(Z)", "P(Z)"], prop={'size': 12})
+        fig.add_subplot(ax)
+
+        fig.savefig(outfile.format('losses'), bbox_inches='tight')
+        plt.close(fig)
+        plt.close("all")
+
+    # ==========================================================================
+    return
+
 def plot_all(model, filename_appendage):
+    return plot_all_bhatia(model, filename_appendage)
+
     fixed_test_sample = model.fixed_test_sample[0:30]
     fixed_train_sample = model.fixed_train_sample[0:30]
     fixed_codes = model.fixed_codes[0:60]

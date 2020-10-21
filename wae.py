@@ -1,5 +1,5 @@
 import os
-#import time
+import time
 #import sys
 #import config
 import socket
@@ -44,7 +44,7 @@ class Model(object):
 
             if host == 'lassen':
                 INPATH = '/p/gpfs1/bhatia4/pilot2/campaign1star/patches_combined'
-                nfiles = 100
+                nfiles = 3000
 
             elif host == 'galaxy':
                 INPATH = '/Users/bhatia4/work/data/pilot2/campaign3/ml_training_data'
@@ -64,13 +64,14 @@ class Model(object):
             self.train_data -= self.train_data.min()
             self.train_data /= (self.train_data.max()-self.train_data.min())
 
-
-            self.test_data = self.train_data[200:]
-            self.train_data = self.train_data[:100]
+            ntrain = 0.85 * self.train_data.shape[0]
+            self.test_data = self.train_data[ntrain:]
+            self.train_data = self.train_data[:ntrain]
 
         # ----------------------------------------------------------------------
         print('z_dim = {}'.format(self.z_dim))
         print('train_data = {}'.format(self.train_data.shape))
+        print('test_data = {}'.format(self.test_data.shape))
         print(self.train_data.min(), self.train_data.max())
 
         self.data_dims = self.train_data.shape[1:]
@@ -81,6 +82,7 @@ class Model(object):
         self.losses_test_fixed = []
 
         self.experiment_path = self.opts['experiment_path']
+        self.experiment_path = self.experiment_path[:-1] + '_' + time.strftime("%Y%m%d-%H%M%S")
 
         if load is False:
             utils.create_directories(self)
@@ -92,10 +94,6 @@ class Model(object):
         models.prior_init(self)
         models.loss_init(self)
         models.optimizer_init(self)
-
-        #print (dir(self))
-        #print (self.z_mean)
-        #exit()
 
         if 'data_augmentation' in self.opts and self.opts['data_augmentation'] is True:
             models.data_augmentation_init(self)

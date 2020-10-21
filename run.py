@@ -181,6 +181,13 @@ if __name__ == "__main__":
     print('\n-------- FLAGS = {}'.format(FLAGS))
     print('\n-------- opts = {}'.format(opts))
 
+    opts['make_pictures_every'] = 100
+    opts['save_every'] = 1000
+    opts['learning_rate_schedule'] = [(0.001, 1000),
+                                      (0.0007, 2000),
+                                      (0.0003, 3000),
+                                      (0.0001, 4001)]
+
     import wae
 
     print('\n-------- set up a wae')
