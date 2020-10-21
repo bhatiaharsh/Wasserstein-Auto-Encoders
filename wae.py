@@ -2,6 +2,7 @@ import os
 #import time
 #import sys
 #import config
+import socket
 
 import numpy as np
 #import matplotlib
@@ -13,10 +14,13 @@ import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 print ('using tensorflow {}'.format(tf.__version__))
 
-import models
+import models_hb as models
 import utils
 import disentanglement_metric
 
+import  glob
+import random
+from utils_data import DataUtils
 
 ## -----------------------------------------------------------------------------
 class Model(object):
@@ -28,9 +32,46 @@ class Model(object):
         self.opts = opts
         utils.opts_check(self)
 
-        self.z_dim = self.opts['z_dim']
         self.batch_size = self.opts['batch_size']
+
+        self.z_dim = self.opts['z_dim']
         self.train_data, self.test_data = utils.load_data(self, seed=0)
+
+        # ----------------------------------------------------------------------
+        if True:
+            hostname = socket.gethostname()
+            host = hostname[:6]
+
+            if host == 'lassen':
+                INPATH = '/p/gpfs1/bhatia4/pilot2/campaign1star/patches_combined'
+                nfiles = 100
+
+            elif host == 'galaxy':
+                INPATH = '/Users/bhatia4/work/data/pilot2/campaign3/ml_training_data'
+                nfiles = 1
+
+            print ('> Loading data from ({})'.format(INPATH))
+            files = glob.glob(os.path.join(INPATH, 'patches*npz'))
+            files.sort(key=DataUtils.get_fid)
+            files = files[-1 * nfiles:]
+
+            # shuffle the files
+            random.shuffle(files)
+            #print (files)
+
+            self.train_data, positions = DataUtils.load_combined(files)
+            self.train_data = np.expand_dims(self.train_data[:,:,:,0], -1)
+            self.train_data -= self.train_data.min()
+            self.train_data /= (self.train_data.max()-self.train_data.min())
+
+
+            self.test_data = self.train_data[200:]
+            self.train_data = self.train_data[:100]
+
+        # ----------------------------------------------------------------------
+        print('z_dim = {}'.format(self.z_dim))
+        print('train_data = {}'.format(self.train_data.shape))
+        print(self.train_data.min(), self.train_data.max())
 
         self.data_dims = self.train_data.shape[1:]
         self.input = tf.placeholder(tf.float32, (None,) + self.data_dims, name="input")
@@ -51,6 +92,11 @@ class Model(object):
         models.prior_init(self)
         models.loss_init(self)
         models.optimizer_init(self)
+
+        #print (dir(self))
+        #print (self.z_mean)
+        #exit()
+
         if 'data_augmentation' in self.opts and self.opts['data_augmentation'] is True:
             models.data_augmentation_init(self)
 

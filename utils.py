@@ -118,7 +118,13 @@ def print_log_information(model, it):
 
     assert len(batches) == len(files)
 
+    #print('1 {}'.format(train_batch.shape))
+    #print('2 {}'.format(test_batch.shape))
+    #print('3 {}'.format(model.fixed_test_sample.shape))
+
     for j in range(len(batches)):
+        #print (' batch[{}] = {}'.format(j,batches[j].shape))
+
         loss_reconstruction, loss_regulariser, loss_total = model.sess.run([model.loss_reconstruction,
                                                                            model.loss_regulariser,
                                                                            model.loss_total],
